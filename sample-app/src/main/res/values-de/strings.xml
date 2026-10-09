@@ -1,0 +1,10 @@
+<resources>
+    <!-- Feature plans -->
+    <string name="feature_plan_selected">Feature Plans: Zeige Plan mit ID 2</string>
+
+    <!-- FAQs -->
+    <string name="faq_selected">FAQ: Zeige Frage mit ID 1</string>
+
+    <!-- Alerts -->
+    <string name="alerts_title">Alerts</string>
+</resources>

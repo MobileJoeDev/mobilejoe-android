@@ -1,0 +1,8 @@
+# Copyright Bytekontor GmbH.
+# Licensed under the MIT License. See LICENSE for details.
+
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://docs.mobilejoe.dev
+    about: Guides for API keys, user identity, feature plans, alerts, and custom UI.

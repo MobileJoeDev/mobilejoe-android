@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="feature_plan_status_open_text">#4ADE80</color>
+    <color name="feature_plan_status_under_review_text">#FBBF24</color>
+    <color name="feature_plan_status_planned_text">#60A5FA</color>
+    <color name="feature_plan_status_in_progress_text">#A78BFA</color>
+    <color name="feature_plan_status_completed_text">#34D399</color>
+    <color name="feature_plan_status_closed_text">#9CA3AF</color>
+    <color name="alert_warning_background">#FEF08A</color>
+    <color name="alert_warning_icon">#FBBF24</color>
+    <color name="alert_error_icon">#FFE4E6</color>
+    <color name="alert_info_warning_icon">#FBBF24</color>
+    <color name="alert_info_error_icon">#CCF87171</color>
+</resources>

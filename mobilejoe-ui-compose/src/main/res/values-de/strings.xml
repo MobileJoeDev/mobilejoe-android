@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Generic -->
+    <string name="generic_empty">Hier gibt es noch nichts zu sehen!</string>
+    <string name="generic_error">Etwas ist schief gelaufen!</string>
+    <string name="generic_sorry">Entschuldigung!</string>
+    <string name="generic_retry">Erneut versuchen</string>
+    <string name="generic_back">Zurück</string>
+    <string name="generic_show_options">Optionen anzeigen</string>
+    <string name="generic_selected">Ausgewählt</string>
+    <string name="generic_search">Suche</string>
+    <string name="generic_add">Hinzufügen</string>
+
+    <!-- Feature plan -->
+    <string name="feature_plans">Feature Plans</string>
+    <string name="feature_plans_feature_plan">Feature Plan</string>
+    <string name="feature_plan_vote_up">Hochvoten</string>
+    <string name="feature_plan_status_all">Alle</string>
+    <string name="feature_plan_status_roadmap">Roadmap</string>
+    <string name="feature_plan_status_open">Offen</string>
+    <string name="feature_plan_status_under_review">In Prüfung</string>
+    <string name="feature_plan_status_planned">Geplant</string>
+    <string name="feature_plan_status_in_progress">In Arbeit</string>
+    <string name="feature_plan_status_completed">Fertig</string>
+    <string name="feature_plan_status_closed">Geschlossen</string>
+    <string name="feature_plan_mail_subject">Neuer Funktionsplan</string>
+
+    <!-- FAQs -->
+    <string name="faqs">FAQ</string>
+    <string name="faq_contact_support_mail_hint">Haben Sie noch Fragen? Dann wenden Sie sich gerne an uns. Wir helfen Ihnen gerne weiter!</string>
+    <string name="faq_contact_support_mail_button">Schicken Sie uns eine E-Mail</string>
+
+    <!-- Alert -->
+    <string name="alert_warning">Warnung</string>
+    <string name="alert_more_info">Mehr Informationen</string>
+    <string name="alert_occurred">Aufgetreten: %1$s um %2$s</string>
+</resources>

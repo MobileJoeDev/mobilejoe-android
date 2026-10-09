@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Generic -->
+    <string name="generic_empty">Nothing to see here yet!</string>
+    <string name="generic_error">Something went wrong!</string>
+    <string name="generic_sorry">Sorry!</string>
+    <string name="generic_retry">Try again</string>
+    <string name="generic_back">Back</string>
+    <string name="generic_show_options">Show options</string>
+    <string name="generic_selected">Selected</string>
+    <string name="generic_search">Search</string>
+    <string name="generic_add">Add</string>
+
+    <!-- Feature plan -->
+    <string name="feature_plans">Feature plans</string>
+    <string name="feature_plans_feature_plan">Feature plan</string>
+    <string name="feature_plan_vote_up">Vote up</string>
+    <string name="feature_plan_status_all">All</string>
+    <string name="feature_plan_status_roadmap">Roadmap</string>
+    <string name="feature_plan_status_open">Open</string>
+    <string name="feature_plan_status_under_review">Under review</string>
+    <string name="feature_plan_status_planned">Planned</string>
+    <string name="feature_plan_status_in_progress">In progress</string>
+    <string name="feature_plan_status_completed">Completed</string>
+    <string name="feature_plan_status_closed">Closed</string>
+    <string name="feature_plan_mail_subject">New feature plan</string>
+
+    <!-- FAQs -->
+    <string name="faqs">FAQ</string>
+    <string name="faq_contact_support_mail_hint">Still have questions? Feel free to contact us. We\'re here to help!</string>
+    <string name="faq_contact_support_mail_button">Send us an email</string>
+
+    <!-- Alert -->
+    <string name="alert_warning">Warning</string>
+    <string name="alert_more_info">More information</string>
+    <string name="alert_occurred">Occurred: %1$s at %2$s</string>
+</resources>

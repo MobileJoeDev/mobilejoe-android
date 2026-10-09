@@ -1,0 +1,54 @@
+# Copyright Bytekontor GmbH.
+# Licensed under the MIT License. See LICENSE for details.
+
+name: Bug report
+description: Report a problem with the Mobile Joe Android SDK.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please don't include API keys or personal data.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: A minimal code snippet or steps that reproduce the problem.
+      placeholder: |
+        1. Configure the SDK with …
+        2. Show `FeaturePlanHost` …
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: sdk-version
+    attributes:
+      label: SDK version
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: input
+    id: android-version
+    attributes:
+      label: Android version and device
+      placeholder: Android 16, Pixel 9
+    validations:
+      required: true
+  - type: input
+    id: build-tools
+    attributes:
+      label: Kotlin, AGP, and Compose BOM versions
+      placeholder: Kotlin 2.4.20, AGP 9.4.1, Compose BOM 2026.09.00
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant Logcat output or stack traces.
+      render: text

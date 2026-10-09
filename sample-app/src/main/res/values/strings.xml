@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name" translatable="false">SampleJoe</string>
+
+    <!-- Feature plans -->
+    <string name="feature_plan_selected">Feature Plans: Show plan with ID 2</string>
+
+    <!-- FAQs -->
+    <string name="faq_selected">FAQ: Show question with ID 1</string>
+    
+    <!-- Alerts -->
+    <string name="alerts_title">Alerts</string>
+</resources>
