@@ -27,8 +27,8 @@
 
     <!-- FAQs -->
     <string name="faqs">FAQ</string>
-    <string name="faq_contact_support_mail_hint">Haben Sie noch Fragen? Dann wenden Sie sich gerne an uns. Wir helfen Ihnen gerne weiter!</string>
-    <string name="faq_contact_support_mail_button">Schicken Sie uns eine E-Mail</string>
+    <string name="faq_contact_support_mail_hint">Deine Frage wurde nicht beantwortet? Dann kontaktiere uns gerne.</string>
+    <string name="faq_contact_support_mail_button">Schicke uns eine E-Mail</string>
 
     <!-- Alert -->
     <string name="alert_warning">Warnung</string>

@@ -6,6 +6,9 @@ package dev.mobilejoe.ui.compose.feature
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -31,7 +34,8 @@ import kotlinx.serialization.Serializable
  * detail screen instead of the list.
  * @param navController The navigation controller driving this host; defaults to a new
  * controller scoped to this composable.
- * @param featurePlans Creates the [FeaturePlans] data source for each screen.
+ * @param featurePlans Creates the [FeaturePlans] data source. The host calls it once and shares
+ * the instance between the list and the detail screen, so a vote cast in one shows in the other.
  */
 @Composable
 fun FeaturePlanHost(
@@ -47,35 +51,73 @@ fun FeaturePlanHost(
         startDestination = selectedFeatureId?.let { FeaturePlanRoute.Detail(it) } ?: FeaturePlanRoute.List,
         modifier = modifier,
     ) {
-        composable<FeaturePlanRoute.List> {
+        composable<FeaturePlanRoute.List> { backStackEntry ->
+            val sharedFeaturePlans =
+                rememberSharedFeaturePlans(navController, backStackEntry, featurePlans)
+
             FeaturePlanListScreen(
                 configuration = configuration,
                 onNavigateUp = onNavigateUp,
                 onNavigateToDetails = { featurePlan ->
                     navController.navigate(FeaturePlanRoute.Detail(featurePlan.id))
                 },
-                viewModel = remember { FeaturePlanListViewModel(featurePlans()) },
+                viewModel = viewModel { FeaturePlanListViewModel(sharedFeaturePlans) },
             )
         }
         composable<FeaturePlanRoute.Detail> { backStackEntry ->
             val detailRoute = backStackEntry.toRoute<FeaturePlanRoute.Detail>()
+            val sharedFeaturePlans =
+                rememberSharedFeaturePlans(navController, backStackEntry, featurePlans)
 
             FeaturePlanDetailScreen(
                 featurePlanId = detailRoute.featurePlanId,
                 onNavigateUp = {
-                    navController.navigate(FeaturePlanRoute.List) {
-                        popUpTo(FeaturePlanRoute.Detail::class) {
-                            inclusive = true
+                    val hasPopBackToList = navController.popBackStack(
+                        route = FeaturePlanRoute.List,
+                        inclusive = false
+                    )
+                    if (!hasPopBackToList) {
+                        navController.navigate(FeaturePlanRoute.List) {
+                            popUpTo(FeaturePlanRoute.Detail::class) { inclusive = true }
                         }
                     }
                 },
-                viewModel = remember {
-                    FeaturePlanDetailViewModel(detailRoute.featurePlanId, featurePlans())
+                viewModel = viewModel {
+                    FeaturePlanDetailViewModel(detailRoute.featurePlanId, sharedFeaturePlans)
                 },
             )
         }
     }
 }
+
+/**
+ * Returns the [FeaturePlans] instance shared by all screens of one [FeaturePlanHost].
+ *
+ * The instance is scoped to the host's navigation graph: it survives configuration changes
+ * and is released together with the host's back stack.
+ *
+ * @param navController The navigation controller driving the host.
+ * @param backStackEntry The entry of the calling destination. The graph entry is looked up once
+ * per entry, so a destination that is animating out doesn't look it up again.
+ * @param featurePlans Creates the instance on first use.
+ */
+@Composable
+private fun rememberSharedFeaturePlans(
+    navController: NavHostController,
+    backStackEntry: NavBackStackEntry,
+    featurePlans: () -> FeaturePlans,
+): FeaturePlans {
+    val graphEntry = remember(backStackEntry) {
+        navController.getBackStackEntry(navController.graph.id)
+    }
+
+    return viewModel(viewModelStoreOwner = graphEntry) {
+        SharedFeaturePlansViewModel(featurePlans())
+    }.featurePlans
+}
+
+/** Keeps the [FeaturePlans] instance of one [FeaturePlanHost] alive across its screens. */
+private class SharedFeaturePlansViewModel(val featurePlans: FeaturePlans) : ViewModel()
 
 /**
  * The navigation destinations within [FeaturePlanHost]'s internal [NavHost].

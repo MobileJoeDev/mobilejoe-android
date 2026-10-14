@@ -5,6 +5,8 @@ package dev.mobilejoe.api.identity
 
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class IdentityTest {
 
@@ -48,5 +50,40 @@ class IdentityTest {
         )
 
         assertEquals("external-42", identity.toString())
+    }
+
+    @Test
+    fun `Test isAnonymous without external ID`() {
+        assertTrue(Identity(anonymousId = "anonymous-42", deviceId = "device-42").isAnonymous)
+    }
+
+    @Test
+    fun `Test isAnonymous with external ID`() {
+        val identity = Identity(
+            anonymousId = "anonymous-42",
+            deviceId = "device-42",
+            externalId = "external-42"
+        )
+
+        assertFalse(identity.isAnonymous)
+    }
+
+    @Test
+    fun `Test belongsTo only its own external ID`() {
+        val identity = Identity(
+            anonymousId = "anonymous-42",
+            deviceId = "device-42",
+            externalId = "external-42"
+        )
+
+        assertTrue(identity.belongsTo("external-42"))
+        assertFalse(identity.belongsTo("external-43"))
+    }
+
+    @Test
+    fun `Test anonymous identity belongs to no external ID`() {
+        val identity = Identity(anonymousId = "anonymous-42", deviceId = "device-42")
+
+        assertFalse(identity.belongsTo("external-42"))
     }
 }

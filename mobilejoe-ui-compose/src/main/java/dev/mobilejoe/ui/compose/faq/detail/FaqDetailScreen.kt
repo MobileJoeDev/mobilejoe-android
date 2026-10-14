@@ -4,7 +4,6 @@
 package dev.mobilejoe.ui.compose.faq.detail
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,7 +23,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -32,10 +30,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.mobilejoe.api.faq.Faq
 import dev.mobilejoe.ui.compose.R
 import dev.mobilejoe.ui.compose.error.ErrorContent
 import dev.mobilejoe.ui.compose.faq.FaqUiConfiguration
+import dev.mobilejoe.ui.compose.faq.contact.FaqContactInfo
 import dev.mobilejoe.ui.compose.loading.LoadingContent
 import dev.mobilejoe.ui.compose.util.openUrl
 
@@ -56,7 +56,9 @@ fun FaqDetailScreen(
     faqId: Int,
     configuration: FaqUiConfiguration,
     onNavigateUp: (() -> Unit)? = null,
-    viewModel: FaqDetailViewModel = remember { FaqDetailViewModel(faqId) }
+    viewModel: FaqDetailViewModel = viewModel(
+        key = "FaqDetailViewModel:$faqId"
+    ) { FaqDetailViewModel(faqId) }
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -141,10 +143,10 @@ private fun FaqDetailScreen(
 }
 
 /**
- * Renders the loaded FAQ's full content with an optional [ContactInfo] block below it.
+ * Renders the loaded FAQ's full content with an optional [FaqContactInfo] block below it.
  *
  * @param state The successfully loaded FAQ state.
- * @param configuration UI configuration used to render [ContactInfo] when [onContactClicked]
+ * @param configuration UI configuration used to render [FaqContactInfo] when [onContactClicked]
  * is non-null.
  * @param onContactClicked Invoked when the contact-support link is tapped. When `null`, no
  * contact link is shown.
@@ -180,7 +182,7 @@ private fun Detail(
                 )
 
                 onContactClicked?.let {
-                    ContactInfo(
+                    FaqContactInfo(
                         configuration = configuration,
                         onClicked = onContactClicked,
                         modifier = Modifier.padding(top = 16.dp)
@@ -188,36 +190,6 @@ private fun Detail(
                 }
             }
         }
-    }
-}
-
-/**
- * Renders the "still have questions? contact us" hint text and a tappable mail-to label.
- *
- * @param configuration UI configuration supplying the hint and mail-to label text.
- * @param modifier Modifier applied to the root [Column].
- * @param onClicked Invoked when the mail-to label is tapped.
- */
-@Composable
-private fun ContactInfo(
-    configuration: FaqUiConfiguration,
-    modifier: Modifier = Modifier,
-    onClicked: () -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = modifier) {
-        Text(
-            text = configuration.contactSupportHint,
-            style = MaterialTheme.typography.bodyLarge,
-        )
-
-        Text(
-            text = configuration.contactSupportMailToLabel,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier
-                .clickable(onClick = onClicked)
-                .padding(vertical = 4.dp)
-        )
     }
 }
 

@@ -4,8 +4,8 @@
 package dev.mobilejoe.ui.compose.faq
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -53,7 +53,7 @@ fun FaqHost(
                 onNavigateToDetails = { faq ->
                     navController.navigate(FaqRoute.Detail(faq.id))
                 },
-                viewModel = remember { FaqListViewModel(faqs()) },
+                viewModel = viewModel { FaqListViewModel(faqs()) },
             )
         }
         composable<FaqRoute.Detail> { backStackEntry ->
@@ -63,13 +63,17 @@ fun FaqHost(
                 faqId = detailRoute.selectedFaqId,
                 configuration = configuration,
                 onNavigateUp = {
-                    navController.navigate(FaqRoute.List) {
-                        popUpTo(FaqRoute.Detail::class) {
-                            inclusive = true
+                    val hasPopBackToList = navController.popBackStack(
+                        route = FaqRoute.List,
+                        inclusive = false
+                    )
+                    if (!hasPopBackToList) {
+                        navController.navigate(FaqRoute.List) {
+                            popUpTo(FaqRoute.Detail::class) { inclusive = true }
                         }
                     }
                 },
-                viewModel = remember { FaqDetailViewModel(detailRoute.selectedFaqId, faqs()) },
+                viewModel = viewModel { FaqDetailViewModel(detailRoute.selectedFaqId, faqs()) },
             )
         }
     }

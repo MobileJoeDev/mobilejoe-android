@@ -23,23 +23,27 @@ interface NetworkClient {
     val isDebugMode: Boolean
 
     /**
-     * Associates the current identity with [externalId]. Switching from a different external id
-     * logs out first.
+     * Switches to the identity for [externalId] right away and sends it to the backend in the
+     * background. Switching from a different external id logs out first.
      *
      * @param externalId The host app's own user identifier, or `null` to keep the persisted
      * identity.
      * @throws IllegalArgumentException if [externalId] is empty or blank.
-     * @throws JoeHttpException if the backend responds with a non-2xx status.
-     * @throws java.io.IOException if the request fails due to a network problem.
+     * @throws IllegalStateException if the client is not configured.
+     * @throws dev.mobilejoe.api.identity.JoeStorageException if the identity could not be
+     * persisted.
      */
-    suspend fun identify(externalId: String?)
+    fun identify(externalId: String?)
 
     /**
-     * Clears the current identity and establishes a fresh, anonymous one.
+     * Switches to a fresh, anonymous identity right away and sends it to the backend in the
+     * background.
      *
-     * @throws Exception if the request fails.
+     * @throws IllegalStateException if the client is not configured.
+     * @throws dev.mobilejoe.api.identity.JoeStorageException if the identity could not be deleted
+     * or persisted.
      */
-    suspend fun logout()
+    fun logout()
 
     /**
      * Fetches a page of feature plans.

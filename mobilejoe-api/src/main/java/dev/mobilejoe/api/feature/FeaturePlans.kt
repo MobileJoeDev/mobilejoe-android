@@ -5,6 +5,8 @@ package dev.mobilejoe.api.feature
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Public entry point for observing, loading, filtering, sorting, searching, and voting on
@@ -47,6 +49,9 @@ class FeaturePlans(
     var search: String? = null
         private set
 
+    /** Mutex lock to prevent concurrent load calls that react to the wrong state */
+    private val loadListMutex = Mutex()
+
     /**
      * Fetches the next page of feature plans (using the current [statusFilter], [sorting], and
      * [search]) from [featurePlansGateway] and appends it to whatever is already held in [all].
@@ -57,7 +62,7 @@ class FeaturePlans(
      * @throws Exception if the underlying gateway request fails. On failure, [all] is left
      * unchanged so any previously loaded feature plans remain visible to observers.
      */
-    suspend fun load() {
+    suspend fun load() = loadListMutex.withLock {
         val features = featurePlansGateway.load(
             statusFilter,
             sorting,
@@ -94,7 +99,15 @@ class FeaturePlans(
      * @throws Exception if the underlying gateway request fails. On failure, [all] is left
      * unchanged.
      */
-    suspend fun reload() {
+    suspend fun reload() = loadListMutex.withLock {
+        reloadInternal()
+    }
+
+    /**
+     * Lock-free body of [reload], for callers that already hold [loadListMutex] and need to
+     * mutate [statusFilter]/[sorting]/[search] and reload atomically in one critical section.
+     */
+    private suspend fun reloadInternal() {
         featurePlansGateway.reset()
         val features = featurePlansGateway.load(
             statusFilter,
@@ -113,14 +126,17 @@ class FeaturePlans(
      * @throws Exception if the underlying gateway request fails. On failure, [all] and [single]
      * are left unchanged.
      */
-    suspend fun vote(featurePlan: FeaturePlan) {
+    suspend fun vote(featurePlan: FeaturePlan) = loadListMutex.withLock {
         val updatedPlan = featurePlansGateway.vote(featurePlan)
 
-        _all.emit(
-            _all.value.orEmpty().map { plan ->
-                if (plan.id == updatedPlan.id) updatedPlan else plan
-            }
-        )
+        // A list that isn't loaded yet stays `null`, so observers don't take it for an empty one.
+        _all.value?.let { plans ->
+            _all.emit(
+                plans.map { plan ->
+                    if (plan.id == updatedPlan.id) updatedPlan else plan
+                }
+            )
+        }
 
         _single.value?.let { plan ->
             if (plan.id == updatedPlan.id) {
@@ -135,9 +151,9 @@ class FeaturePlans(
      * @param statusFilter The new status filter to apply.
      * @throws Exception if the resulting [reload] fails.
      */
-    suspend fun setStatusFilter(statusFilter: StatusFilter) {
+    suspend fun setStatusFilter(statusFilter: StatusFilter) = loadListMutex.withLock {
         this.statusFilter = statusFilter
-        reload()
+        reloadInternal()
     }
 
     /**
@@ -146,9 +162,9 @@ class FeaturePlans(
      * @param sorting The new sort order to apply.
      * @throws Exception if the resulting [reload] fails.
      */
-    suspend fun setSorting(sorting: Sorting) {
+    suspend fun setSorting(sorting: Sorting) = loadListMutex.withLock {
         this.sorting = sorting
-        reload()
+        reloadInternal()
     }
 
     /**
@@ -157,9 +173,9 @@ class FeaturePlans(
      * @param query The new free-text search query, or `null`/blank to clear search.
      * @throws Exception if the resulting [reload] fails.
      */
-    suspend fun setSearchQuery(query: String?) {
+    suspend fun setSearchQuery(query: String?) = loadListMutex.withLock {
         search = query
-        reload()
+        reloadInternal()
     }
 
     companion object {

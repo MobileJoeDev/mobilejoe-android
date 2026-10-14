@@ -10,12 +10,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.mobilejoe.api.alert.Alert
 
 /**
@@ -38,7 +38,7 @@ import dev.mobilejoe.api.alert.Alert
 @Composable
 fun AlertsView(
     modifier: Modifier = Modifier,
-    viewModel: AlertsViewModel = remember { AlertsViewModel() }
+    viewModel: AlertsViewModel = viewModel { AlertsViewModel() }
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val alertSheet by viewModel.activeAlertInfo.collectAsStateWithLifecycle()

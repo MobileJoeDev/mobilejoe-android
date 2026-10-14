@@ -10,11 +10,12 @@ import dev.mobilejoe.api.identity.util.IdFactory
  * keeping it in sync with the host app's own user id.
  *
  * [JoeNetworkClient][dev.mobilejoe.api.network.JoeNetworkClient] is the sole owner of an
- * [IdentityManager] instance. Identifying is two-phased: [prepareIdentity] resolves the identity
- * to send to the backend, and [commit] makes it [currentIdentity] once the backend has accepted
- * it, so an account change becomes locally visible only after backend success. [logout]/[reset]
- * clear the identity, with [logout] additionally re-establishing a fresh anonymous one in its
- * place.
+ * [IdentityManager] instance. Every identity change is local and synchronous: [identify] and
+ * [logout] switch to and persist the target identity right away and return it, so the caller can
+ * send it to the backend afterwards. There is no confirmation step; a backend response never
+ * changes the identity.
+ *
+ * All members are safe to call from any thread.
  *
  * @param identityGateway The store used to persist/restore the identity across launches.
  * @param idFactory The factory used to mint new anonymous/external/device ids.
@@ -24,103 +25,197 @@ internal class IdentityManager(
     private val idFactory: IdFactory,
 ) {
 
+    /** Where the identity stands in this process; see [state]. */
+    private sealed interface State {
+
+        /** No identity has been loaded or identified in this process yet. */
+        data object Unknown : State
+
+        /** [identity] is persisted and used for requests. */
+        data class Identified(val identity: Identity) : State
+
+        /** A logout is in progress or failed partway. The next [identify] completes it first. */
+        data object LoggingOut : State
+    }
+
+    /** Guarded by this instance's monitor, like every other member. */
+    private var state: State = State.Unknown
+
     /** The identity currently in effect, or `null` before one has been established. */
-    var currentIdentity: Identity? = null
-        private set
+    val currentIdentity: Identity?
+        @Synchronized get() = when (val state = state) {
+            is State.Identified -> state.identity
+            State.LoggingOut,
+            State.Unknown -> null
+        }
 
     /**
-     * Resolves the identity for [appUserId] without committing it. Send the result to the
-     * backend and pass it to [commit] once the backend has accepted it.
+     * Switches to the identity for [appUserId] and persists it.
      *
-     * Only a needed [logout] changes [currentIdentity]. Depending on the persisted identity:
      * - No persisted identity: a brand-new identity is created.
-     * - [appUserId] is `null`: the persisted identity is returned unchanged, including its
-     *   external id. Only an explicit [logout] returns to an anonymous identity.
-     * - Persisted identity has the same external id: it is returned unchanged.
-     * - Persisted identity is anonymous only: its anonymous id is kept and [appUserId] is added,
-     *   so anonymous activity carries over to the account.
-     * - Persisted identity has a different external id: [logout] runs first and takes effect
-     *   immediately, so the previous account's anonymous id is never linked to another account.
-     *   [appUserId] is then added to the fresh anonymous identity, which stays [currentIdentity]
-     *   if the backend rejects the new account.
+     * - [appUserId] is `null`: the persisted identity is kept, including its external id. Only an
+     *   explicit [logout] returns to an anonymous identity.
+     * - The identity is anonymous: its anonymous id is kept and [appUserId] is added, so anonymous
+     *   activity carries over to the app user.
+     * - The identity belongs to another app user id: it is deleted first and replaced by fresh
+     *   ids, so the previous anonymous id is never linked to another app user. If persisting
+     *   fails then, there is no [currentIdentity] until the next [identify] or [logout].
      *
      * @param appUserId The host app's own user identifier, or `null` to keep the persisted
      * identity.
-     * @return The identity to send to the backend and then [commit].
+     * @return The identity to send to the backend, or `null` if [currentIdentity] already belongs
+     * to [appUserId] and nothing changed.
      * @throws IllegalArgumentException if [appUserId] is empty or blank.
+     * @throws JoeStorageException if the identity could not be persisted.
      */
-    fun prepareIdentity(appUserId: String?): Identity {
+    @Synchronized
+    fun identify(appUserId: String?): Identity? {
         requireValidAppUserId(appUserId)
 
         val externalId = appUserId?.let { id -> idFactory.createExternalId(externalId = id) }
-        val persistedIdentity = identityGateway.find()
-            ?: return newIdentity(externalId)
-
-        return when {
-            externalId == null -> persistedIdentity
-            persistedIdentity.externalId == externalId -> persistedIdentity
-            persistedIdentity.externalId == null -> persistedIdentity.copy(externalId = externalId)
-            else -> logout().copy(externalId = externalId)
-        }
+        return prepareIdentity(externalId)
+            ?.also { identity ->
+                identityGateway.save(identity)
+                state = State.Identified(identity)
+            }
     }
 
     /**
-     * Makes [identity] the [currentIdentity], persisting it if it differs from the persisted one.
+     * [identify] for the first call of a process, where the identity is sent even if it didn't
+     * change.
      *
-     * @param identity The identity returned by [prepareIdentity] and accepted by the backend.
+     * @param appUserId The host app's own user identifier, or `null` to keep the persisted
+     * identity.
+     * @return The identity now in effect.
+     * @throws IllegalArgumentException if [appUserId] is empty or blank.
+     * @throws JoeStorageException if the identity could not be persisted.
      */
-    fun commit(identity: Identity) {
-        if (identity != identityGateway.find()) {
-            identityGateway.save(identity)
-        }
-        currentIdentity = identity
-    }
-
-    /** Clears [currentIdentity] and deletes the persisted identity without creating a new one. */
-    fun reset() {
-        currentIdentity = null
-        identityGateway.delete()
+    @Synchronized
+    fun identifyAtStart(appUserId: String?): Identity {
+        return identify(appUserId) ?: checkNotNull(currentIdentity)
     }
 
     /**
-     * Clears the persisted identity and immediately establishes a fresh, fully anonymous
-     * [currentIdentity] with new anonymous and device ids in its place.
+     * Whether [identity] is still the one in effect, i.e. no later [identify] or [logout]
+     * replaced it.
+     *
+     * @param identity The identity to check.
+     */
+    @Synchronized
+    fun isCurrent(identity: Identity): Boolean {
+        return identity == currentIdentity
+    }
+
+    /**
+     * Deletes the persisted identity and switches to a fresh anonymous one with new anonymous and
+     * device ids.
+     *
+     * Deletes before saving: if saving fails and the process dies, the previous ids must not come
+     * back after a restart.
      *
      * @return The new anonymous identity.
+     * @throws JoeStorageException if the identity could not be deleted or persisted.
      */
+    @Synchronized
     fun logout(): Identity {
-        currentIdentity = null
-        identityGateway.delete()
-
-        val identity = newIdentity(externalId = null)
+        val identity = beginLogout()
         identityGateway.save(identity)
-        currentIdentity = identity
+        state = State.Identified(identity)
         return identity
     }
 
     /**
-     * Builds a brand-new [Identity] with fresh anonymous and device ids, without persisting it.
+     * Deletes the persisted identity and creates a fresh anonymous one, without persisting it.
+     * The logout stays pending until the caller has persisted the result or an identity derived
+     * from it.
      *
-     * @param externalId The already hashed external id, or `null` for a purely anonymous identity.
-     * @return The newly created identity.
+     * @return The new anonymous identity.
+     * @throws JoeStorageException if the identity could not be deleted.
      */
-    private fun newIdentity(externalId: String?): Identity {
+    private fun beginLogout(): Identity {
+        state = State.LoggingOut
+        identityGateway.delete()
+        return newIdentity()
+    }
+
+    /**
+     * Resolves the identity for [externalId] without persisting it.
+     *
+     * @param externalId The already hashed external id, or `null` to keep the identity as is.
+     * @return The identity to switch to, or `null` if [currentIdentity] already matches.
+     */
+    private fun prepareIdentity(externalId: String?): Identity? {
+        if (isIdentifiedAs(externalId)) {
+            return null
+        }
+        completePendingLogout()
+
+        val identity = findOrCreateIdentity()
+        return if (externalId == null) identity else assign(externalId, identity)
+    }
+
+    /**
+     * Whether [currentIdentity] already covers [externalId].
+     *
+     * @param externalId The already hashed external id, or `null`, which any identity covers.
+     */
+    private fun isIdentifiedAs(externalId: String?): Boolean {
+        return currentIdentity?.let { identity ->
+            externalId == null || identity.belongsTo(externalId)
+        } ?: false
+    }
+
+    /** Finishes a [logout] that failed partway, before any persisted identity is reused. */
+    private fun completePendingLogout() {
+        when (state) {
+            State.LoggingOut ->
+                logout()
+
+            State.Unknown,
+            is State.Identified ->
+                Unit
+        }
+    }
+
+    /** Returns [currentIdentity], else the persisted identity, else a brand-new one. */
+    private fun findOrCreateIdentity(): Identity {
+        return currentIdentity ?: identityGateway.find() ?: newIdentity()
+    }
+
+    /**
+     * Adds [externalId] to [identity], logging out first if [identity] already belongs to another
+     * app user id.
+     *
+     * Only begins that logout: the caller persists the result, which saves writing the
+     * intermediate anonymous identity to disk.
+     *
+     * @param externalId The already hashed external id.
+     * @param identity The identity to assign [externalId] to.
+     * @return The identity carrying [externalId].
+     */
+    private fun assign(externalId: String, identity: Identity): Identity {
+        val belongsToOther = !identity.isAnonymous && !identity.belongsTo(externalId)
+        val target = if (belongsToOther) beginLogout() else identity
+        return target.copy(externalId = externalId)
+    }
+
+    /** Builds a brand-new anonymous [Identity] with fresh ids, without persisting it. */
+    private fun newIdentity(): Identity {
         return Identity(
             anonymousId = idFactory.createAnonymousId(),
-            externalId = externalId,
-            deviceId = idFactory.createDeviceId()
+            deviceId = idFactory.createDeviceId(),
         )
     }
-}
 
-/**
- * Rejects an empty or blank [appUserId] before any identity state changes.
- *
- * @param appUserId The host app's own user identifier, or `null`, which is always valid.
- * @throws IllegalArgumentException if [appUserId] is empty or blank.
- */
-internal fun requireValidAppUserId(appUserId: String?) {
-    require(appUserId == null || appUserId.isNotBlank()) {
-        "The app user ID must not be empty. Use a stable account ID."
+    /**
+     * Rejects an empty or blank [appUserId] before any identity state changes.
+     *
+     * @param appUserId The host app's own user identifier, or `null`, which is always valid.
+     * @throws IllegalArgumentException if [appUserId] is empty or blank.
+     */
+    private fun requireValidAppUserId(appUserId: String?) {
+        require(appUserId == null || appUserId.isNotBlank()) {
+            "The app user ID must not be empty. Use a stable account ID."
+        }
     }
 }

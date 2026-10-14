@@ -90,6 +90,29 @@ class FeaturePlanDetailViewModelTest {
     }
 
     @Test
+    fun `Test feature plan with other ID keeps loading`() = runTest {
+        turbineScope {
+            val featurePlans = mockk<FeaturePlans>(relaxed = true) {
+                every { single } returns flow {
+                    emit(FeaturePlan.empty().copy(id = 7))
+                }
+                coEvery { load(42) } returns Unit
+            }
+            val viewModel = FeaturePlanDetailViewModel(42, featurePlans, viewModelScope)
+
+            viewModel.state.test {
+                assertEquals(
+                    FeaturePlanDetailViewModel.State.Loading,
+                    awaitItem()
+                )
+
+                advanceUntilIdle()
+                expectNoEvents()
+            }
+        }
+    }
+
+    @Test
     fun `Test retry failed loading`() = runTest {
         turbineScope {
             mockkStatic(Log::class)

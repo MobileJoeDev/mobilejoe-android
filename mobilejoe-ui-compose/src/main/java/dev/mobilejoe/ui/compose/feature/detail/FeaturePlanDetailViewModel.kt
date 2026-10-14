@@ -55,7 +55,9 @@ class FeaturePlanDetailViewModel(
     ) { featurePlan, error ->
         when {
             error != null -> State.Error
-            featurePlan != null -> State.Success(featurePlanItem = featurePlan)
+            // A shared data source can still hold the previously opened feature plan.
+            featurePlan != null && featurePlan.id == featurePlanId ->
+                State.Success(featurePlanItem = featurePlan)
             else -> State.Loading
         }
     }.stateIn(

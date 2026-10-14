@@ -25,16 +25,17 @@ internal class PreferencesIdentityGateway(
      * [context].
      *
      * @param context The context used to open the preferences file.
+     * @throws JoeStorageException if the preferences file can't be opened, e.g. in a direct-boot
+     * aware app before the user has unlocked the device.
      */
-    constructor(context: Context) : this(
-        context.getSharedPreferences("dev.mobilejoe.identity", Context.MODE_PRIVATE)
-    )
+    constructor(context: Context) : this(openSharedPreferences(context))
 
     /**
      * Reconstructs an [Identity] from whatever's currently stored under [sharedPreferences].
      *
      * @return The stored [Identity] reconstructed from its individual preference keys, or `null`
-     * if [KEY_ANONYMOUS_ID] or [KEY_DEVICE_ID] is missing (i.e. nothing has been [save]d yet).
+     * if [KEY_ANONYMOUS_ID] or [KEY_DEVICE_ID] is missing (i.e. nothing has been [save]d yet, or
+     * the stored identity is incomplete and the next [save] replaces it).
      */
     override fun find(): Identity? {
         return sharedPreferences.getString(KEY_ANONYMOUS_ID, null)?.let { anonymousId ->
@@ -51,12 +52,17 @@ internal class PreferencesIdentityGateway(
 
     /**
      * Writes [identity]'s fields to their individual preference keys, removing
-     * [KEY_EXTERNAL_ID] if [Identity.externalId] is `null`.
+     * [KEY_EXTERNAL_ID] if [Identity.externalId] is `null`. Writes nothing if [identity] is
+     * already stored.
      *
      * @param identity The identity to persist.
-     * @throws IllegalStateException if [SharedPreferences.Editor.commit] returns `false`.
+     * @throws JoeStorageException if [SharedPreferences.Editor.commit] returns `false`.
      */
     override fun save(identity: Identity) {
+        if (identity == find()) {
+            return
+        }
+
         sharedPreferences.edit().apply {
             putString(KEY_ANONYMOUS_ID, identity.anonymousId)
             putString(KEY_DEVICE_ID, identity.deviceId)
@@ -66,7 +72,7 @@ internal class PreferencesIdentityGateway(
             } ?: remove(KEY_EXTERNAL_ID)
 
             if (!commit()) {
-                throw IllegalStateException("Save identity IDs failed.")
+                throw JoeStorageException("Save identity IDs failed.")
             }
         }
     }
@@ -74,7 +80,7 @@ internal class PreferencesIdentityGateway(
     /**
      * Removes all identity-related preference keys.
      *
-     * @throws IllegalStateException if [SharedPreferences.Editor.commit] returns `false`.
+     * @throws JoeStorageException if [SharedPreferences.Editor.commit] returns `false`.
      */
     override fun delete() {
         sharedPreferences.edit().apply {
@@ -83,7 +89,7 @@ internal class PreferencesIdentityGateway(
             remove(KEY_DEVICE_ID)
 
             if (!commit()) {
-                throw IllegalStateException("Delete identity IDs failed.")
+                throw JoeStorageException("Delete identity IDs failed.")
             }
         }
     }
@@ -98,5 +104,19 @@ internal class PreferencesIdentityGateway(
 
         /** Preference key for [Identity.deviceId]. */
         private const val KEY_DEVICE_ID = "device_id"
+
+        /**
+         * Opens this SDK's private [SharedPreferences] file for [context].
+         *
+         * @param context The context used to open the preferences file.
+         * @throws JoeStorageException if the preferences file can't be opened.
+         */
+        private fun openSharedPreferences(context: Context): SharedPreferences {
+            return try {
+                context.getSharedPreferences("dev.mobilejoe.identity", Context.MODE_PRIVATE)
+            } catch (e: IllegalStateException) {
+                throw JoeStorageException("Open identity preferences failed.", e)
+            }
+        }
     }
 }

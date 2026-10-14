@@ -34,7 +34,7 @@ internal class InMemoryFaqsGateway(
             ),
             Faq(
                 id = 2,
-                title = "How do I create an account?",
+                title = "How do I create an account if I already signed up with a different email address?",
                 body = "Navigate to the signup page and fill in the required fields including your email and password.",
                 position = 2,
                 updatedAt = Instant.EPOCH,

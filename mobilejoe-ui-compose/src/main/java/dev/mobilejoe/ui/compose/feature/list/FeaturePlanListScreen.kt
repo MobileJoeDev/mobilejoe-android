@@ -51,6 +51,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.mobilejoe.api.feature.FeaturePlan
 import dev.mobilejoe.api.feature.FeaturePlans
 import dev.mobilejoe.ui.compose.R
@@ -85,7 +86,7 @@ fun FeaturePlanListScreen(
     configuration: FeaturePlanUiConfiguration,
     onNavigateUp: (() -> Unit)? = null,
     onNavigateToDetails: (FeaturePlan) -> Unit = {},
-    viewModel: FeaturePlanListViewModel = remember { FeaturePlanListViewModel() }
+    viewModel: FeaturePlanListViewModel = viewModel { FeaturePlanListViewModel() }
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()

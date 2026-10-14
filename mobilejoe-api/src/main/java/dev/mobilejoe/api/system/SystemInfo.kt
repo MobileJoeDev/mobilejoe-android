@@ -54,7 +54,6 @@ data class SystemInfo(
                 version = BuildConfig.MOBILE_JOE_VERSION,
                 locales = context.resources.configuration.locales,
             )
-
         }
     }
 }

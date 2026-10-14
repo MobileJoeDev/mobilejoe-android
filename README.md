@@ -41,30 +41,22 @@ It includes the core SDK `dev.mobilejoe:mobilejoe-api`. For a custom UI, add onl
 
 ## Quick start
 
-Configure once at app startup in your `Application` class. Show SDK components only after the configuration has completed:
+Configure once in your `Application` class, before any SDK component appears:
 
 ```kotlin
 import android.app.Application
-import android.util.Log
 import dev.mobilejoe.api.Joe
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 class MyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                Joe.configure(applicationContext = this@MyApplication, apiKey = "YOUR_API_KEY")
-            } catch (e: Exception) {
-                Log.e("MyApplication", "Mobile Joe configuration failed", e)
-            }
-        }
+        Joe.configure(applicationContext = this, apiKey = "YOUR_API_KEY")
     }
 }
 ```
+
+`configure` returns right away, and SDK components load content immediately. It sends the identity to Mobile Joe in the background. If that fails, the SDK logs it to Logcat with the tag `Joe`. After a network error, it retries on the next app start. An invalid API key disables SDK requests until the app restarts.
 
 Register the `Application` class and allow network access in your `AndroidManifest.xml`:
 

@@ -8,6 +8,8 @@ import app.cash.turbine.test
 import app.cash.turbine.turbineScope
 import dev.mobilejoe.api.feature.FeaturePlan
 import dev.mobilejoe.api.feature.FeaturePlans
+import dev.mobilejoe.api.feature.FeaturePlansGateway
+import dev.mobilejoe.ui.compose.feature.detail.FeaturePlanDetailViewModel
 import dev.mobilejoe.ui.compose.viewModelScope
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -739,6 +741,51 @@ class FeaturePlanListViewModelTest {
                         listState = FeaturePlanListViewModel.State.ListState.Error(
                             statusFilter = FeaturePlans.StatusFilter.ALL,
                             sorting = FeaturePlans.Sorting.BY_NEWEST,
+                        )
+                    ),
+                    awaitItem()
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `Test vote in detail view model with shared feature plans`() = runTest {
+        turbineScope {
+            val featurePlanItem = FeaturePlan.empty().copy(id = 42)
+            val votedFeaturePlanItem = featurePlanItem.copy(score = 1, isVoted = true)
+
+            val gateway = mockk<FeaturePlansGateway>(relaxed = true) {
+                coEvery { load(any(), any(), any()) } returns listOf(featurePlanItem)
+                coEvery { load(42) } returns featurePlanItem
+                coEvery { vote(featurePlanItem) } returns votedFeaturePlanItem
+            }
+            val featurePlans = FeaturePlans(gateway)
+            val viewModel = FeaturePlanListViewModel(featurePlans, viewModelScope)
+            val detailViewModel = FeaturePlanDetailViewModel(42, featurePlans, viewModelScope)
+
+            viewModel.state.test {
+                skipItems(1) // Skip loading state
+
+                assertEquals(
+                    FeaturePlanListViewModel.State.Default(
+                        FeaturePlanListViewModel.State.ListState.Success(
+                            statusFilter = FeaturePlans.StatusFilter.ALL,
+                            sorting = FeaturePlans.Sorting.BY_NEWEST,
+                            featurePlanItems = listOf(featurePlanItem),
+                        )
+                    ),
+                    awaitItem()
+                )
+
+                detailViewModel.onUpVoteClicked(featurePlanItem)
+
+                assertEquals(
+                    FeaturePlanListViewModel.State.Default(
+                        FeaturePlanListViewModel.State.ListState.Success(
+                            statusFilter = FeaturePlans.StatusFilter.ALL,
+                            sorting = FeaturePlans.Sorting.BY_NEWEST,
+                            featurePlanItems = listOf(votedFeaturePlanItem),
                         )
                     ),
                     awaitItem()

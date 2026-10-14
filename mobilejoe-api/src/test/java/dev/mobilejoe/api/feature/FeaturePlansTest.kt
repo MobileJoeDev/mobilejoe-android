@@ -4,13 +4,21 @@
 package dev.mobilejoe.api.feature
 
 import io.mockk.coEvery
+import io.mockk.coJustRun
 import io.mockk.coVerify
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import kotlin.test.assertEquals
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class FeaturePlansTest {
 
     @Test
@@ -214,5 +222,87 @@ class FeaturePlansTest {
             featurePlan42.copy(isVoted = true, score = 1),
             featurePlans.single.first()
         )
+    }
+
+    @Test
+    fun `Test vote before the list is loaded keeps the list unloaded`() = runTest {
+        val featurePlan42 = FeaturePlan.empty().copy(id = 42, isVoted = false, score = 0)
+        val featurePlansGateway = mockk<FeaturePlansGateway> {
+            coEvery { load(any()) } returns featurePlan42
+            coEvery { vote(any()) } returns featurePlan42.copy(isVoted = true, score = 1)
+        }
+        val featurePlans = FeaturePlans(featurePlansGateway)
+
+        featurePlans.load(42)
+        featurePlans.vote(featurePlan42)
+
+        assertEquals(null, featurePlans.all.first())
+        assertEquals(
+            featurePlan42.copy(isVoted = true, score = 1),
+            featurePlans.single.first()
+        )
+    }
+
+    @Test
+    fun `Test concurrent load calls are serialized by lock`() = runTest {
+        assertCallsAreSerializedByLock(FeaturePlans::load, FeaturePlans::load)
+    }
+
+    @Test
+    fun `Test concurrent reload calls are serialized by lock`() = runTest {
+        assertCallsAreSerializedByLock(FeaturePlans::reload, FeaturePlans::reload)
+    }
+
+    @Test
+    fun `Test concurrent load and reload calls are serialized by lock`() = runTest {
+        assertCallsAreSerializedByLock(FeaturePlans::load, FeaturePlans::reload)
+    }
+
+    @Test
+    fun `Test concurrent load and setStatusFilter calls are serialized by lock`() = runTest {
+        assertCallsAreSerializedByLock(FeaturePlans::load, { setStatusFilter(FeaturePlans.StatusFilter.COMPLETED) })
+    }
+
+    @Test
+    fun `Test concurrent load and setSorting calls are serialized by lock`() = runTest {
+        assertCallsAreSerializedByLock(FeaturePlans::load, { setSorting(FeaturePlans.Sorting.BY_SCORE) })
+    }
+
+    @Test
+    fun `Test concurrent load and setSearchQuery calls are serialized by lock`() = runTest {
+        assertCallsAreSerializedByLock(FeaturePlans::load, { setSearchQuery("search") })
+    }
+
+    private fun TestScope.assertCallsAreSerializedByLock(
+        firstCall: suspend FeaturePlans.() -> Unit,
+        secondCall: suspend FeaturePlans.() -> Unit,
+    ) {
+        var callCount = 0
+        val firstLoadCallFinished = CompletableDeferred<Unit>()
+        val featurePlansGateway = mockk<FeaturePlansGateway> {
+            coEvery { load(any(), any(), any()) } coAnswers {
+                if (++callCount == 1) {
+                    firstLoadCallFinished.await()
+                }
+
+                listOf(FeaturePlan.empty())
+            }
+            coJustRun { reset() }
+        }
+
+        val featurePlans = FeaturePlans(featurePlansGateway)
+
+        launch { featurePlans.firstCall() }
+        runCurrent()
+
+        launch { featurePlans.secondCall() }
+        runCurrent()
+
+        assertEquals(1, callCount)
+
+        firstLoadCallFinished.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(2, callCount)
     }
 }

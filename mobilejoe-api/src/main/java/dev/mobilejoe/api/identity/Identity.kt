@@ -10,7 +10,7 @@ package dev.mobilejoe.api.identity
  * time the SDK is configured on a device, and persisted across app launches by
  * [IdentityGateway]. Once the host app identifies with its own user id for the first time, an
  * [externalId] is added on top without discarding the original [anonymousId]. Switching to a
- * different user id logs out first, so the new account gets fresh ids instead. [id] is the single
+ * different user id logs out first, so the new app user gets fresh ids instead. [id] is the single
  * property callers/requests should use to refer to "the current user", since it transparently
  * prefers [externalId] once one exists.
  *
@@ -29,6 +29,19 @@ data class Identity(
     /** The identifier to use when referring to this identity: [externalId] if set, else [anonymousId]. */
     val id: String
         get() = externalId ?: anonymousId
+
+    /** Whether the host app hasn't identified with its own user id yet. */
+    internal val isAnonymous: Boolean
+        get() = externalId == null
+
+    /**
+     * Whether this identity is linked to [externalId].
+     *
+     * @param externalId The already hashed external id to compare with.
+     */
+    internal fun belongsTo(externalId: String): Boolean {
+        return this.externalId == externalId
+    }
 
     /**
      * Renders this identity as its [id], so logging/string-interpolating an [Identity] shows the

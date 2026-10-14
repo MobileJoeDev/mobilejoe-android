@@ -3,14 +3,15 @@
 
 package dev.mobilejoe.api
 
+import android.content.Context
 import dev.mobilejoe.api.identity.Identity
 import dev.mobilejoe.api.network.JoeNetworkClient
-import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.every
+import io.mockk.justRun
+import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
-import kotlinx.coroutines.test.runTest
+import io.mockk.verify
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -18,25 +19,45 @@ import kotlin.test.assertNull
 class JoeTest {
 
     @Test
-    fun `Test identify delegates to network client`() = runTest {
+    fun `Test configure delegates to network client`() {
+        val context = mockk<Context>()
         mockkObject(JoeNetworkClient)
-        coEvery { JoeNetworkClient.identify(any()) } returns Unit
+        justRun { JoeNetworkClient.configure(any(), any(), any(), any()) }
 
-        Joe.identify("user-42")
+        Joe.configure(context, apiKey = "j_o_e", appUserId = "user-42", isDebugMode = true)
 
-        coVerify { JoeNetworkClient.identify(externalId = "user-42") }
+        verify {
+            JoeNetworkClient.configure(
+                applicationContext = context,
+                apiKey = "j_o_e",
+                externalId = "user-42",
+                isDebugMode = true,
+            )
+        }
 
         unmockkAll()
     }
 
     @Test
-    fun `Test logout delegates to network client`() = runTest {
+    fun `Test identify delegates to network client`() {
         mockkObject(JoeNetworkClient)
-        coEvery { JoeNetworkClient.logout() } returns Unit
+        justRun { JoeNetworkClient.identify(any()) }
+
+        Joe.identify("user-42")
+
+        verify { JoeNetworkClient.identify(externalId = "user-42") }
+
+        unmockkAll()
+    }
+
+    @Test
+    fun `Test logout delegates to network client`() {
+        mockkObject(JoeNetworkClient)
+        justRun { JoeNetworkClient.logout() }
 
         Joe.logout()
 
-        coVerify { JoeNetworkClient.logout() }
+        verify { JoeNetworkClient.logout() }
 
         unmockkAll()
     }

@@ -23,13 +23,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.mobilejoe.api.feature.FeaturePlan
 import dev.mobilejoe.ui.compose.R
 import dev.mobilejoe.ui.compose.error.ErrorContent
@@ -53,7 +53,9 @@ import android.text.format.DateFormat as AndroidDateFormat
 fun FeaturePlanDetailScreen(
     featurePlanId: Int,
     onNavigateUp: (() -> Unit)? = null,
-    viewModel: FeaturePlanDetailViewModel = remember {
+    viewModel: FeaturePlanDetailViewModel = viewModel(
+        key = "FeaturePlanDetailViewModel:$featurePlanId"
+    ) {
         FeaturePlanDetailViewModel(featurePlanId)
     }
 ) {

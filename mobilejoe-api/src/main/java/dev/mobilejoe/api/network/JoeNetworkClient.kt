@@ -10,17 +10,18 @@ import dev.mobilejoe.api.faq.Faq
 import dev.mobilejoe.api.feature.FeaturePlan
 import dev.mobilejoe.api.identity.Identity
 import dev.mobilejoe.api.identity.IdentityManager
+import dev.mobilejoe.api.identity.JoeStorageException
 import dev.mobilejoe.api.identity.PreferencesIdentityGateway
-import dev.mobilejoe.api.identity.requireValidAppUserId
 import dev.mobilejoe.api.identity.util.JoeIdFactory
 import dev.mobilejoe.api.network.JoeNetworkClient.apiKey
 import dev.mobilejoe.api.network.JoeNetworkClient.appendCommonHeaders
+import dev.mobilejoe.api.network.JoeNetworkClient.buildJoeHttpClient
 import dev.mobilejoe.api.network.JoeNetworkClient.configure
-import dev.mobilejoe.api.network.JoeNetworkClient.identify
+import dev.mobilejoe.api.network.JoeNetworkClient.httpClient
 import dev.mobilejoe.api.network.JoeNetworkClient.identityManager
-import dev.mobilejoe.api.network.JoeNetworkClient.identityMutex
 import dev.mobilejoe.api.network.JoeNetworkClient.isDebugMode
-import dev.mobilejoe.api.network.JoeNetworkClient.logout
+import dev.mobilejoe.api.network.JoeNetworkClient.rejectApiKey
+import dev.mobilejoe.api.network.JoeNetworkClient.scope
 import dev.mobilejoe.api.network.JoeNetworkClient.systemInfo
 import dev.mobilejoe.api.system.SystemInfo
 import dev.mobilejoe.api.system.isDebuggable
@@ -37,15 +38,17 @@ import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.url
 import io.ktor.http.HeadersBuilder
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.URLProtocol
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.launch
 import dev.mobilejoe.api.json as jsonConfig
 
 /** Host of the MobileJoe backend API. */
@@ -62,69 +65,79 @@ internal val featurePlansUrl = "https://$apiHost/$apiVersion/feature_plans"
  *
  * As a singleton `object`, this instance holds the SDK's entire network/identity state
  * ([identityManager], [apiKey], [systemInfo], [isDebugMode]) for the lifetime of the process.
- * [configure] must be called (and succeed) before any of the `get`/`post`-prefixed endpoint
- * functions are used, since every one of them calls [appendCommonHeaders], which requires
- * [apiKey] and an established identity to be present.
+ * [configure] must be called before any of the `get`/`post`-prefixed endpoint functions are
+ * used, since every one of them calls [appendCommonHeaders], which requires [apiKey] and an
+ * identity. Both are available as soon as [configure] returns: the identity is sent to the
+ * backend in the background, and no request waits for that.
+ *
+ * Safe to use from any thread. [configure] and [rejectApiKey] run under this object's monitor,
+ * and the state they write is `@Volatile` for the requests reading it.
  */
 internal object JoeNetworkClient : NetworkClient {
 
-    /** The underlying HTTP client used for every request; see [buildJoeHttpClient]. */
-    private var httpClient = buildJoeHttpClient(Android.create())
-
-    /** Owns [Identity] creation/persistence; `null` until [configure] has been called once. */
-    private var identityManager: IdentityManager? = null
+    /**
+     * Runs the background `identify` requests and builds [httpClient], independent of any
+     * caller's own coroutine. A `var` so a test can swap in its own scope.
+     */
+    private var scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
-     * The API key set by [configure]; `null` until configuration has succeeded.
+     * The underlying HTTP client used for every request; see [buildJoeHttpClient].
      *
-     * `@Volatile` because it's written under [identityMutex] but read under [configurationMutex]
-     * in [configure] — the two locks don't synchronize with each other, so the field needs its
-     * own visibility guarantee.
+     * Built in [scope] on first use, so neither [configure] nor a content request started on the
+     * main thread pays for it there: callers suspend until it is ready. A `var` so a test can
+     * swap in a client backed by another engine.
      */
+    private var httpClient: Deferred<HttpClient> = scope.async(start = CoroutineStart.LAZY) {
+        buildJoeHttpClient(Android.create())
+    }
+
+    /** Owns [Identity] creation/persistence; `null` until [configure] has been called once. */
+    @Volatile
+    private var identityManager: IdentityManager? = null
+
+    /** The API key set by [configure]; `null` until then. The first [configure] call wins. */
     @Volatile
     private var apiKey: String? = null
 
+    /**
+     * Whether the backend rejected [apiKey]; see [rejectApiKey].
+     *
+     * Never reset, on purpose: the first [configure] call wins, so this process can't get another
+     * key, and retrying the rejected one only repeats the `401`. A valid key takes effect on the
+     * next app start.
+     */
+    @Volatile
+    private var isApiKeyRejected = false
+
     /** Device/app metadata sent with every request; `null` until [configure] has been called. */
+    @Volatile
     private var systemInfo: SystemInfo? = null
 
     /** Backing field for [isDebugMode]. */
+    @Volatile
     private var _isDebugMode: Boolean = false
 
     /** @see NetworkClient.isDebugMode */
     override val isDebugMode: Boolean
         get() = _isDebugMode
 
-    /** The identity currently in effect, or `null` if [identityManager] hasn't been set up yet. */
+    /** The identity currently in effect, or `null` if a logout did not complete. */
     val currentIdentity: Identity?
         get() = requireIdentityManager().currentIdentity
 
     /**
-     * Serializes [configure], [identify], and [logout] so identity resolution and commit can't
-     * interleave across concurrent calls.
-     */
-    private val identityMutex = Mutex()
-
-    /**
-     * Guards [configure] to ensure only one configuration attempt is in-flight at a time, and that
-     * the first successful one wins.
-     */
-    private val configurationMutex = Mutex()
-
-    /** The shared in-flight (or just-finished) configuration attempt, if any; see [configure]. */
-    private var configurationDeferred: Deferred<Unit>? = null
-
-    /** Owns [configurationDeferred] so it outlives any single caller's own coroutine/dispatcher. */
-    private val configureScope = CoroutineScope(SupervisorJob())
-
-    /**
-     * Sets up [systemInfo] and [identityManager] for [applicationContext], identifies the
-     * device/user with the backend, and only then commits [apiKey] and [isDebugMode].
+     * Sets up [systemInfo] and [identityManager] for [applicationContext], switches to the
+     * identity for [externalId], and commits [apiKey] and [isDebugMode]. Content requests work as
+     * soon as this returns; the identity is sent to the backend in the background.
      *
-     * A failed identify call leaves the client unconfigured (i.e. [apiKey]/[isDebugMode] are not
-     * updated) rather than partially configured.
+     * Reads the persisted identity from disk, and writes it if it changed, on the calling thread.
      *
-     * Safe to call more than once: it only takes effect the first time, and calls made at the
-     * same time simply wait for one another instead of running at once.
+     * Never throws for a storage failure, since an unchecked exception here would crash the host
+     * app at startup: the failure is logged and the client stays unconfigured, so requests fail
+     * until a later call succeeds, at the latest on the next app start.
+     *
+     * Safe to call more than once: it only takes effect the first time it succeeds.
      *
      * @param applicationContext The host app's context.
      * @param apiKey The API key issued for the host app.
@@ -132,57 +145,39 @@ internal object JoeNetworkClient : NetworkClient {
      * identity (anonymous on first launch).
      * @param isDebugMode Whether requests should be tagged as debug traffic.
      * @throws IllegalArgumentException if [externalId] is empty or blank; nothing is set up then.
-     * @throws JoeHttpException if identification responds with a non-2xx status.
-     * @throws java.io.IOException if identification fails due to a network problem.
      */
-    suspend fun configure(
+    @Synchronized
+    fun configure(
         applicationContext: Context,
         apiKey: String,
         externalId: String?,
         isDebugMode: Boolean = false
     ) {
-        val task = configurationMutex.withLock {
-            if (this.apiKey != null) {
-                Log.w(
-                    "Joe", "🦫 Joe says: SDK already configured. Nothing changed. " +
-                            "Use `identify` to set a new `appUserId`."
-                )
-                return
-            }
-
-            // CoroutineStart.LAZY so the attempt can't start running (and try to acquire
-            // identityMutex) before this withLock block returns and releases configurationMutex.
-            configurationDeferred ?: configureScope.async(start = CoroutineStart.LAZY) {
-                identityMutex.withLock {
-                    try {
-                        requireValidAppUserId(externalId)
-
-                        configureSystemInfo(applicationContext)
-                        configureIdentityManager(applicationContext)
-
-                        identifyAndCommit(
-                            externalId = externalId,
-                            apiKey = apiKey,
-                            isDebugMode = isDebugMode
-                        )
-
-                        this@JoeNetworkClient.apiKey = apiKey
-                        this@JoeNetworkClient._isDebugMode = isDebugMode
-
-                        if (applicationContext.isDebuggable) {
-                            Log.d("Joe", "🦫 Joe says: SDK configured successfully.")
-                        }
-                    } finally {
-                        configurationMutex.withLock {
-                            configurationDeferred = null
-                        }
-                    }
-                }
-            }.also { configurationDeferred = it }
+        if (this.apiKey != null) {
+            Log.w(
+                "Joe", "🦫 Joe says: SDK already configured. Nothing changed. " +
+                        "Use `identify` to set a new `appUserId`."
+            )
+            return
         }
 
-        // Wait for shared or just-created one in-flight runs across concurrent callers.
-        task.await()
+        configureSystemInfo(applicationContext)
+        val identity = try {
+            configureIdentityManager(applicationContext)
+            requireIdentityManager().identifyAtStart(externalId)
+        } catch (e: JoeStorageException) {
+            Log.e("Joe", "🦫 Joe says: Failed to store the identity. The SDK is not configured.", e)
+            return
+        }
+
+        this._isDebugMode = isDebugMode
+        this.apiKey = apiKey
+
+        if (applicationContext.isDebuggable) {
+            Log.d("Joe", "🦫 Joe says: SDK configured successfully.")
+        }
+
+        sendIdentityInBackground(identity)
     }
 
     /**
@@ -200,6 +195,7 @@ internal object JoeNetworkClient : NetworkClient {
      *
      * @param applicationContext The host app's context, used to construct the preferences-backed
      * identity gateway.
+     * @throws JoeStorageException if the identity storage can't be opened.
      */
     private fun configureIdentityManager(applicationContext: Context) {
         if (identityManager != null) {
@@ -212,92 +208,102 @@ internal object JoeNetworkClient : NetworkClient {
     }
 
     /**
-     * Re-identifies with [externalId] under [identityMutex], serializing this call against
-     * [configure] and any other concurrent [identify]/[logout] call.
+     * Switches to the identity for [externalId] right away and sends it to the backend in the
+     * background. Sends nothing if the current identity already belongs to [externalId].
      *
      * @param externalId The host app's own user identifier, or `null` to keep the persisted
      * identity.
      * @throws IllegalArgumentException if [externalId] is empty or blank.
-     * @throws JoeHttpException if the backend responds with a non-2xx status; the new account is
-     * not applied locally.
-     * @throws java.io.IOException if the request fails due to a network problem; the new account
-     * is not applied locally.
+     * @throws IllegalStateException if [configure] has not been called yet.
+     * @throws JoeStorageException if the identity could not be persisted.
      */
-    override suspend fun identify(externalId: String?) = identityMutex.withLock {
-        identifyAndCommit(externalId)
+    override fun identify(externalId: String?) {
+        requireIdentityManager().identify(externalId)?.let(::sendIdentityInBackground)
     }
 
     /**
-     * Resolves the identity for [externalId], posts it to the backend, and commits it locally
-     * only once the backend has accepted it.
+     * Switches to a fresh anonymous identity right away and sends it to the backend in the
+     * background.
      *
-     * Switching from one external id to a different one logs out first, so on failure the
-     * identity is the fresh anonymous one, never the previous account's. Otherwise a failed
-     * request leaves the previous identity untouched. A `null` [externalId] keeps the persisted
-     * identity, including its external id.
-     *
-     * @param externalId The host app's own user identifier, or `null` to keep the persisted
-     * identity.
-     * @param apiKey The API key to use for the identify request. Defaults to the currently
-     * configured [apiKey].
-     * @param isDebugMode Whether to tag the identify request as debug traffic. Defaults to the
-     * currently configured [isDebugMode].
-     * @throws IllegalArgumentException if [externalId] is empty or blank.
-     * @throws Exception if the request fails.
+     * @throws IllegalStateException if [configure] has not been called yet.
+     * @throws JoeStorageException if the identity could not be deleted or persisted.
      */
-    private suspend fun identifyAndCommit(
-        externalId: String?,
-        apiKey: String? = this.apiKey,
-        isDebugMode: Boolean = this.isDebugMode,
-    ) {
-        val identity = requireIdentityManager().prepareIdentity(externalId)
-        identifyInternal(identity = identity, apiKey = apiKey, isDebugMode = isDebugMode)
-        requireIdentityManager().commit(identity)
+    override fun logout() {
+        sendIdentityInBackground(requireIdentityManager().logout())
     }
 
     /**
-     * Posts [identity] to the `identify` endpoint.
+     * Launches [sendIdentity] for [identity] in [scope] and returns right away.
      *
-     * @param identity The identity to identify with.
-     * @param apiKey The API key to authenticate the request with. Defaults to the currently
-     * configured [apiKey].
-     * @param isDebugMode Whether to tag the request as debug traffic. Defaults to the currently
-     * configured [isDebugMode].
-     * @throws JoeHttpException if the backend responds with a non-2xx status.
-     * @throws java.io.IOException if the request fails due to a network problem.
+     * The request may start before or after the caller's next statement. An identity that was
+     * replaced before its request is sent is skipped, including while the HTTP client is still
+     * being built on first use. `configure` directly followed by `identify` therefore sends one
+     * request in most cases, and two if the first one is already on its way. The backend handles
+     * both.
+     *
+     * @param identity The identity to send.
      */
-    private suspend fun identifyInternal(
-        identity: Identity,
-        apiKey: String? = this.apiKey,
-        isDebugMode: Boolean = this.isDebugMode,
-    ) {
-        httpClient.post {
-            url {
-                protocol = URLProtocol.HTTPS
-                host = apiHost
-                pathSegments = listOf(apiVersion, "identify")
+    private fun sendIdentityInBackground(identity: Identity) {
+        scope.launch { sendIdentity(identity) }
+    }
+
+    /**
+     * Posts [identity] to the `identify` endpoint, unless the SDK is not configured, the API key
+     * was rejected, or [identity] is no longer the current one.
+     *
+     * Never throws for a failed request: the failure is logged, and the identity is sent again
+     * on the next app start. Content requests keep working meanwhile, because the backend
+     * resolves the app user from the identity headers.
+     *
+     * @param identity The identity to send.
+     */
+    private suspend fun sendIdentity(identity: Identity) {
+        try {
+            // Building the client on first use takes the longest, so check afterwards whether
+            // the identity is still worth sending.
+            val client = httpClient.await()
+            val isEnabled = apiKey != null && !isApiKeyRejected
+            if (!isEnabled || !requireIdentityManager().isCurrent(identity)) {
+                return
             }
-            headers {
-                appendCommonHeaders(
-                    this,
-                    apiKey = apiKey,
-                    isDebugMode = isDebugMode,
-                    identity = identity,
-                )
+
+            client.post {
+                url {
+                    protocol = URLProtocol.HTTPS
+                    host = apiHost
+                    pathSegments = listOf(apiVersion, "identify")
+                }
+
+                headers { appendCommonHeaders(this, identity) }
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // A rejected API key is already logged by rejectApiKey, whether this request or
+            // another one in flight got the 401.
+            if (isApiKeyRejected) {
+                return
+            }
+
+            Log.w("Joe", "🦫 Joe says: Failed to identify. Retrying on next app start.", e)
         }
     }
 
     /**
-     * Clears the current identity and establishes a fresh anonymous one, under [identityMutex].
-     *
-     * @throws Exception if the SDK has not been configured yet, i.e. [identityManager] is
-     * `null`.
+     * Disables the SDK after the backend rejected [apiKey]: every later request fails before it
+     * is sent. Only the first call logs, so requests already in flight don't repeat the message.
      */
-    override suspend fun logout() {
-        identityMutex.withLock {
-            requireIdentityManager().logout()
+    @Synchronized
+    private fun rejectApiKey() {
+        if (isApiKeyRejected) {
+            return
         }
+
+        isApiKeyRejected = true
+        Log.e(
+            "Joe", "🦫 Joe says: Invalid API key. " +
+                    "The SDK is disabled until the app restarts with a valid key."
+        )
     }
 
     /**
@@ -322,7 +328,7 @@ internal object JoeNetworkClient : NetworkClient {
         sorting: String?,
         search: String?,
     ): NetworkClient.Response<List<FeaturePlan>> {
-        val response = httpClient.get {
+        val response = httpClient.await().get {
             url(requestUrl)
                 .apply {
                     statuses?.forEach { status -> parameter("statuses[]", status) }
@@ -347,7 +353,7 @@ internal object JoeNetworkClient : NetworkClient {
      * @throws Exception if the response body can't be decoded.
      */
     override suspend fun getFeaturePlan(featurePlanId: Int): FeaturePlan {
-        return httpClient.get {
+        return httpClient.await().get {
             url {
                 protocol = URLProtocol.HTTPS
                 host = apiHost
@@ -369,7 +375,7 @@ internal object JoeNetworkClient : NetworkClient {
      * @throws Exception if the response body can't be decoded.
      */
     override suspend fun postVoteFeaturePlans(featurePlanId: Int): FeaturePlan {
-        return httpClient.post {
+        return httpClient.await().post {
             url {
                 protocol = URLProtocol.HTTPS
                 host = apiHost
@@ -391,7 +397,7 @@ internal object JoeNetworkClient : NetworkClient {
      * @throws Exception if the response body can't be decoded.
      */
     override suspend fun getAlerts(): List<Alert> {
-        return httpClient.get {
+        return httpClient.await().get {
             url {
                 protocol = URLProtocol.HTTPS
                 host = apiHost
@@ -412,7 +418,7 @@ internal object JoeNetworkClient : NetworkClient {
      * @throws Exception if the response body can't be decoded.
      */
     override suspend fun getFaqs(): List<Faq> {
-        return httpClient.get {
+        return httpClient.await().get {
             url {
                 protocol = URLProtocol.HTTPS
                 host = apiHost
@@ -434,7 +440,7 @@ internal object JoeNetworkClient : NetworkClient {
      * @throws Exception if the response body can't be decoded.
      */
     override suspend fun getFaq(faqId: Int): Faq {
-        return httpClient.get {
+        return httpClient.await().get {
             url {
                 protocol = URLProtocol.HTTPS
                 host = apiHost
@@ -449,28 +455,23 @@ internal object JoeNetworkClient : NetworkClient {
      * Appends the headers every authenticated request needs: bearer auth, identity ids, debug
      * mode flag, and device/app metadata.
      *
+     * Checks the API key before the identity, so a request without [configure] reports the
+     * missing configuration.
+     *
      * @param headers The header builder to append to.
-     * @param apiKey The API key to authenticate with. Defaults to the currently configured
-     * [apiKey].
-     * @param isDebugMode Whether to tag the request as debug traffic. Defaults to the currently
-     * configured [isDebugMode].
-     * @param identity The identity to send. Defaults to the current identity.
-     * @throws IllegalStateException if [apiKey] is `null` (SDK not configured) or if there is no
-     * [identity] set.
+     * @param identity The identity to send, or `null` for the current identity.
+     * @throws IllegalStateException if the SDK is not configured, the API key was rejected, or
+     * there is no identity.
      */
-    private fun appendCommonHeaders(
-        headers: HeadersBuilder,
-        apiKey: String? = this.apiKey,
-        isDebugMode: Boolean = this.isDebugMode,
-        identity: Identity? = requireIdentityManager().currentIdentity,
-    ) {
-        checkNotNull(apiKey) {
-            "API key is not set. Please call `MobileJoe.configure(...)` before making any call."
+    private fun appendCommonHeaders(headers: HeadersBuilder, identity: Identity? = null) {
+        val apiKey = checkNotNull(apiKey) { NOT_CONFIGURED_MESSAGE }
+        check(!isApiKeyRejected) {
+            "Invalid API key. The SDK is disabled until the app restarts with a valid key."
         }
         headers.append("Authorization", "Bearer $apiKey")
 
-        checkNotNull(identity) {
-            "Identity is not set. Please call `MobileJoe.configure(...)` before making any call."
+        val identity = checkNotNull(identity ?: identityManager?.currentIdentity) {
+            "Identity is not set. A logout did not complete; call `Joe.logout()` again."
         }
         headers.append("Identity-Anonymous-ID", identity.anonymousId)
 
@@ -508,18 +509,25 @@ internal object JoeNetworkClient : NetworkClient {
      * @return [identityManager], asserted non-null.
      * @throws IllegalStateException if [configure] has not been called yet.
      */
-    private fun requireIdentityManager() = checkNotNull(identityManager) {
-        "Identity manager is not initialized. Please call `MobileJoe.configure(...)` before making any call."
-    }
+    private fun requireIdentityManager() = checkNotNull(identityManager) { NOT_CONFIGURED_MESSAGE }
+
+    /**
+     * Error message for every call that needs [configure] first. Also covers a [configure] that
+     * logged a storage failure and left the SDK unconfigured.
+     */
+    private const val NOT_CONFIGURED_MESSAGE =
+        "The SDK is not configured. Call `Joe.configure(...)` before making any call. " +
+                "If you did, check Logcat for the tag `Joe`."
 
     /**
      * Builds the Ktor [HttpClient] used for every request: JSON (de)serialization, and mapping
      * any non-2xx response into a [JoeHttpException] rather than a misleading JSON-decoding
-     * failure.
+     * failure. A `401` becomes a [JoeInvalidApiKeyException] and disables the SDK, for `identify`
+     * and content requests alike; see [rejectApiKey].
      *
-     * An `internal` member (rather than inlined into [httpClient]'s field initializer) so a test
-     * can build an equivalent client against a different [engine] (e.g. Ktor's `MockEngine`)
-     * without re-implementing this configuration.
+     * An `internal` member (rather than inlined into [httpClient]'s initializer) so a test can
+     * build an equivalent client against a different [engine] (e.g. Ktor's `MockEngine`) without
+     * re-implementing this configuration.
      *
      * @param engine The HTTP engine to run requests through.
      */
@@ -532,17 +540,26 @@ internal object JoeNetworkClient : NetworkClient {
 
         HttpResponseValidator {
             handleResponseExceptionWithRequest { cause, request ->
-                when (cause) {
-                    is ResponseException ->
+                when {
+                    cause !is ResponseException ->
+                        throw cause
+
+                    cause.response.status == HttpStatusCode.Unauthorized -> {
+                        rejectApiKey()
+                        throw JoeInvalidApiKeyException(
+                            method = request.method.value,
+                            path = request.url.encodedPath,
+                            cause = cause,
+                        )
+                    }
+
+                    else ->
                         throw JoeHttpException(
                             statusCode = cause.response.status.value,
                             method = request.method.value,
                             path = request.url.encodedPath,
                             cause = cause,
                         )
-
-                    else ->
-                        throw cause
                 }
             }
         }
