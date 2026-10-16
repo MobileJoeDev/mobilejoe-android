@@ -69,7 +69,7 @@ fun FaqHost(
                     )
                     if (!hasPopBackToList) {
                         navController.navigate(FaqRoute.List) {
-                            popUpTo(FaqRoute.Detail::class) { inclusive = true }
+                            popUpTo<FaqRoute.Detail> { inclusive = true }
                         }
                     }
                 },

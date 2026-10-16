@@ -6,32 +6,19 @@ plugins {
     alias(libs.plugins.kotlinx.serialization)
     alias(libs.plugins.maven.publish)
     alias(libs.plugins.dokka)
-}
-
-mavenPublishing {
-    pom {
-        name.set("MobileJoe Compose UI")
-        description.set("Jetpack Compose components for MobileJoe on Android.")
-    }
+    alias(libs.plugins.android.kotlin)
 }
 
 kotlin {
-    compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_21)
-    }
+    jvmToolchain(libs.versions.jvm.get().toInt())
 }
 
 android {
     namespace = "dev.mobilejoe.ui.compose"
-    compileSdk = 37
+    compileSdk = libs.versions.android.sdk.get().toInt()
 
     defaultConfig {
         minSdk = 26
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
     }
 
     buildFeatures {
@@ -55,14 +42,22 @@ dependencies {
     api(libs.compose.ui)
     api(libs.compose.navigation)
 
-    implementation(libs.compose.ui.tooling)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons)
+
+    debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.turbine)
+}
+
+mavenPublishing {
+    pom {
+        name.set("MobileJoe Compose UI")
+        description.set("Jetpack Compose components for MobileJoe on Android.")
+    }
 }

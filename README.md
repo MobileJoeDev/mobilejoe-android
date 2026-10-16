@@ -25,7 +25,7 @@ Your users never sign up for a third-party account. Use the ready-made Jetpack C
 | FAQs with optional email support | `FaqHost` |
 | In-app alert banners with detail sheets | `AlertsView` |
 
-Requires Android 8.0+ (API 26) and compileSdk 37+. The UI module is based on Jetpack Compose.
+Requires Android 8.0+ (API 26), compileSdk 35+, Android Gradle Plugin 8.6+, and Kotlin 2.1+. The UI module is based on Jetpack Compose.
 
 ## Installation
 

@@ -1,28 +1,22 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlinx.serialization)
     alias(libs.plugins.maven.publish)
     alias(libs.plugins.dokka)
-}
-
-mavenPublishing {
-    pom {
-        name.set("MobileJoe API")
-        description.set("MobileJoe API client for Android apps.")
-    }
+    alias(libs.plugins.android.kotlin)
 }
 
 kotlin {
+    jvmToolchain(libs.versions.jvm.get().toInt())
+
     compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_21)
+        optIn.add("kotlin.time.ExperimentalTime")
     }
 }
 
 android {
     namespace = "dev.mobilejoe.api"
-    compileSdk = 37
+    compileSdk = libs.versions.android.sdk.get().toInt()
 
     defaultConfig {
         minSdk = 26
@@ -38,11 +32,6 @@ android {
             isMinifyEnabled = false
             consumerProguardFiles("consumer-rules.pro")
         }
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
     }
 
     buildFeatures {
@@ -64,4 +53,12 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.ktor.client.mock)
+    testRuntimeOnly(libs.slf4j.nop)
+}
+
+mavenPublishing {
+    pom {
+        name.set("MobileJoe API")
+        description.set("MobileJoe API client for Android apps.")
+    }
 }

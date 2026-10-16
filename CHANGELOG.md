@@ -2,6 +2,16 @@
 
 All notable changes to the Mobile Joe Android SDK are documented in this file.
 
+## 1.0.2
+
+Lowers the toolchain requirements for apps. You no longer need compileSdk 37, Android Gradle Plugin 9, Kotlin 2.4, or JDK 21 to use the SDK.
+
+- Requires Android 8.0+ (API 26), compileSdk 35+, Android Gradle Plugin 8.6+, and Kotlin 2.1+.
+- The SDK compiles to Java 17 bytecode, so apps can build with JDK 17 and JVM target 17.
+- The SDK depends on lower minimum versions of AndroidX, Compose, Ktor, and kotlinx. If your app uses newer versions, Gradle keeps them.
+- The SDK declares the `INTERNET` permission itself. Your app no longer needs to add it.
+- Compose UI tooling, including its exported `PreviewActivity`, is no longer merged into release builds of your app.
+
 ## 1.0.1
 
 Fixes alerts that were missing on a cold start. This release changes how you set up the SDK, so it may need small changes in your app. It also simplifies the FAQ list.

@@ -21,7 +21,7 @@ class JoeIdFactoryTest {
 
         val anonymousId = JoeIdFactory.createAnonymousId()
 
-        assertEquals($$"$MBJAnonymousID:aaaa1111bbbb2222", anonymousId)
+        assertEquals("\$MBJAnonymousID:aaaa1111bbbb2222", anonymousId)
     }
 
     @Test
@@ -31,6 +31,6 @@ class JoeIdFactoryTest {
 
         val externalId = JoeIdFactory.createExternalId("external-42")
 
-        assertEquals($$"$MBJExternalID:123456789-123456789-123456789-12", externalId)
+        assertEquals("\$MBJExternalID:123456789-123456789-123456789-12", externalId)
     }
 }

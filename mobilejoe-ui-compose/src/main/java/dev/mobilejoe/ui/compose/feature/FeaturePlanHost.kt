@@ -78,7 +78,7 @@ fun FeaturePlanHost(
                     )
                     if (!hasPopBackToList) {
                         navController.navigate(FeaturePlanRoute.List) {
-                            popUpTo(FeaturePlanRoute.Detail::class) { inclusive = true }
+                            popUpTo<FeaturePlanRoute.Detail> { inclusive = true }
                         }
                     }
                 },

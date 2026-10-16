@@ -5,23 +5,22 @@ plugins {
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlinx.serialization)
     alias(libs.plugins.dokka)
+    alias(libs.plugins.android.kotlin)
 }
 
 kotlin {
-    compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_21)
-    }
+    jvmToolchain(libs.versions.jvm.get().toInt())
 }
 
 android {
     namespace = "dev.mobilejoe.samplejoe"
-    compileSdk = 37
+    compileSdk = libs.versions.android.sdk.get().toInt()
 
     defaultConfig {
         applicationId = "dev.mobilejoe.samplejoe"
 
         minSdk = 26
-        targetSdk = 37
+        targetSdk = libs.versions.android.sdk.get().toInt()
 
         versionCode = 1
         versionName = "1.0.0"
@@ -39,11 +38,6 @@ android {
 
             signingConfig = signingConfigs.getByName("debug")
         }
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
     }
 
     buildFeatures {
@@ -67,4 +61,6 @@ dependencies {
     implementation(libs.bundles.compose)
     implementation(libs.compose.navigation)
     implementation(libs.androidx.activity.compose)
+
+    runtimeOnly(libs.slf4j.android)
 }
